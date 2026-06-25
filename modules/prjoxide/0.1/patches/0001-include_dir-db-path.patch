@@ -1,0 +1,11 @@
+--- a/libprjoxide/prjoxide/src/bin/prjoxide.rs
++++ b/libprjoxide/prjoxide/src/bin/prjoxide.rs
+@@ -18,7 +18,7 @@
+ 
+ use include_dir::{include_dir, Dir};
+ 
+-const DATABASE_DIR: Dir = include_dir!("../../database");
++const DATABASE_DIR: Dir = include_dir!(".");
+ 
+ #[derive(Parser)]
+ #[clap(version = "0.1", author = "gatecat <gatecat@ds0.me>")]

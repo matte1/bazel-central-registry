@@ -1,0 +1,9 @@
+# The Lattice tile database (gatecat/prjoxide-db). Consumed by the prjoxide
+# module, which embeds it into the binary at compile time.
+exports_files(["devices.json"])
+
+filegroup(
+    name = "db",
+    srcs = glob(["**"], exclude = ["BUILD.bazel", "MODULE.bazel"]),
+    visibility = ["//visibility:public"],
+)

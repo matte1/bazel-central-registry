@@ -1,0 +1,37 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library")
+load("@crates//:defs.bzl", "all_crate_deps")
+load("//:dbtree.bzl", "db_tree")
+
+exports_files(["Cargo.toml"])
+
+rust_library(
+    name = "prjoxide_lib",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/bin/**"]),
+    crate_name = "prjoxide",
+    crate_root = "src/lib.rs",
+    edition = "2018",
+    deps = all_crate_deps(normal = True),
+    visibility = ["//visibility:public"],
+)
+
+# Stage the separate @prjoxide_db archive into a single directory so the
+# include_dir! embed can read it as CARGO_MANIFEST_DIR.
+db_tree(
+    name = "db_tree",
+    srcs = ["@prjoxide_db//:db"],
+    anchor = "@prjoxide_db//:devices.json",
+)
+
+# The source was patched to include_dir!(".") which reads CARGO_MANIFEST_DIR;
+# we point that at the staged DB dir, so the binary embeds the DB from the
+# separate prjoxide-db archive (no in-tree submodule).
+rust_binary(
+    name = "prjoxide",
+    srcs = ["src/bin/prjoxide.rs"],
+    crate_root = "src/bin/prjoxide.rs",
+    edition = "2018",
+    compile_data = [":db_tree"],
+    rustc_env = {"CARGO_MANIFEST_DIR": "$(execpath :db_tree)"},
+    deps = all_crate_deps(normal = True) + [":prjoxide_lib"],
+    visibility = ["//visibility:public"],
+)

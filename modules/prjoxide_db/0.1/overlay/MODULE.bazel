@@ -1,0 +1,5 @@
+module(
+    name = "prjoxide_db",
+    version = "0.1",
+    bazel_compatibility = [">=7.2.1"],
+)

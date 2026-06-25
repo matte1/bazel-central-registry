@@ -1,0 +1,9 @@
+{
+    "url": "https://github.com/gatecat/prjoxide-db/archive/79c15ee4ab0673259d0f4316245ce3fbb63aaf78.tar.gz",
+    "integrity": "sha256-f9l1OCrMXSdoWdh3yyLB3MuB7d+sAsl+7Yheebr3kHM=",
+    "strip_prefix": "prjoxide-db-79c15ee4ab0673259d0f4316245ce3fbb63aaf78",
+    "overlay": {
+        "BUILD.bazel": "sha256-v8mh+ljLhoW/HblLZWXrkjdvk1JsTGFR895WGC+gCQM=",
+        "MODULE.bazel": "sha256-prhSw/pQ/iKeGsh82AKbRsz3rIUI1iw095eDxBsUhUA="
+    }
+}

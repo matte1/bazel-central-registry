@@ -1,0 +1,18 @@
+{
+    "url": "https://github.com/gatecat/prjoxide/archive/9ab3b4ee3b9c5c1d210243c667b1f39ee7c01496.tar.gz",
+    "integrity": "sha256-o1/HvN51yQqgVGZ4gIw5aNZZN0uhHxAwGxq6JMEerJc=",
+    "strip_prefix": "prjoxide-9ab3b4ee3b9c5c1d210243c667b1f39ee7c01496",
+    "patch_strip": 1,
+    "patches": {
+        "0001-include_dir-db-path.patch": "sha256-zNROgSKHLDUdKlsNfyd2JZN//82tVrhK70YiwcHBvnA="
+    },
+    "overlay": {
+        "BUILD.bazel": "sha256-Dki0gehno/R8QzeEivQTrAFqbgyW4CWwOH6CpOZ3+nA=",
+        "MODULE.bazel": "sha256-m3rZKdaYNNb6YApU1WN9OCyNdtDuV/geBSgETsLBT6c=",
+        "dbtree.bzl": "sha256-z9FKYfxUxpif9q4AhedspWdmYFLacUZfr+h2XHduVXA=",
+        "libprjoxide/BUILD.bazel": "sha256-SnMS0Tya0CQcY9eqobwJF9dyHtZf0Z2TAzNIM/OmqPQ=",
+        "libprjoxide/Cargo.lock": "sha256-JQIaXudTcIc9o8AkbF23majteoAch42X499Bg2xBVXY=",
+        "libprjoxide/prjoxide/BUILD.bazel": "sha256-YsLbMuHFEkUqjNo1GIKSiyhMW1sZ1whXoCunzMpTXvA=",
+        "libprjoxide/pyprjoxide/BUILD.bazel": "sha256-Tz+jAOKCuh/JekWAzWEN3LaSLVH5B+BVn0OQgNtiAYk="
+    }
+}

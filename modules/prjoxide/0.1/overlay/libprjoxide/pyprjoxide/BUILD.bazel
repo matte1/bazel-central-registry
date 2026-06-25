@@ -1,0 +1,2 @@
+# Manifest only (so crate_universe resolves the full workspace); not built.
+exports_files(["Cargo.toml"])

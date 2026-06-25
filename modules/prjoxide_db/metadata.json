@@ -1,0 +1,18 @@
+{
+    "homepage": "https://github.com/gatecat/prjoxide",
+    "maintainers": [
+        {
+            "name": "Matt Epperson",
+            "email": "m.p.epperson@gmail.com",
+            "github": "matte1",
+            "github_user_id": 4590064
+        }
+    ],
+    "repository": [
+        "github:gatecat/prjoxide-db"
+    ],
+    "versions": [
+        "0.1"
+    ],
+    "yanked_versions": {}
+}
