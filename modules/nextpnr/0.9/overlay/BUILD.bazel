@@ -471,6 +471,182 @@ cc_binary(
     ],
 )
 
+################################################################################
+# Nexus Architecture (Lattice CrossLink-NX / Certus-NX)
+################################################################################
+
+# bbasm assembles a .bba into an embeddable chipdb C source. Built from
+# nextpnr's own bba/main.cc as a host tool for the chipdb genrules below.
+cc_binary(
+    name = "bbasm",
+    srcs = ["bba/main.cc"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "@boost.program_options//:boost.program_options",
+        "@boost.system//:boost.system",
+    ],
+)
+
+# Step 1: prjoxide exports the LIFCL chipdb to .bba text. prjoxide embeds the
+# Lattice tile DB, so this is self-contained. (Stock prjoxide supports LIFCL;
+# LFCPNX needs extra prjoxide patches and is omitted here.)
+genrule(
+    name = "gen_chipdb_lifcl_bba",
+    srcs = [
+        "nexus/constids.inc",
+        "nexus/bba_version.inc",
+    ],
+    outs = ["nexus/chipdb-LIFCL.bba"],
+    cmd = "$(location @prjoxide//libprjoxide/prjoxide:prjoxide) bba-export LIFCL $(location nexus/constids.inc) $@",
+    tools = ["@prjoxide//libprjoxide/prjoxide:prjoxide"],
+)
+
+# Step 2: bbasm assembles the .bba into a self-contained C source (string-literal
+# mode, `--c`). This avoids C23 `#embed`, which requires gcc>=15 / clang>=19;
+# string mode compiles on the stock toolchains BCR targets.
+genrule(
+    name = "gen_chipdb_lifcl_cc",
+    srcs = ["nexus/chipdb-LIFCL.bba"],
+    outs = ["nexus/chipdb-LIFCL.cc"],
+    cmd = "$(location :bbasm) --le --c $(location nexus/chipdb-LIFCL.bba) $@",
+    tools = [":bbasm"],
+)
+
+# Nexus architecture - defs
+cc_library(
+    name = "nextpnr-nexus-defs",
+    hdrs = [
+        "nexus/arch.h",
+        "nexus/archdefs.h",
+        "nexus/bba_version.inc",
+        "nexus/constids.inc",
+    ],
+    defines = [
+        "ARCHNAME=nexus",
+        "ARCH_NEXUS",
+        "NEXTPNR_NAMESPACE=nextpnr_nexus",
+        "NO_GUI",
+        # Disable the embedded Python interpreter: nextpnr otherwise calls
+        # init_python() at startup, which aborts when the Python stdlib isn't
+        # found at runtime. The Nexus flow drives nextpnr via CLI, not Python.
+        "NO_PYTHON",
+    ],
+    includes = [
+        "common/kernel",
+        "nexus",
+    ],
+)
+
+# Nexus chipdb - embedded blob generated above. The .cc `#embed`s the .bin and
+# registers an EmbeddedFile named "nexus/chipdb-LIFCL.bin" (name set by prjoxide
+# in the .bba); the nexus arch loads it via get_chipdb() at startup.
+cc_library(
+    name = "nextpnr-nexus-chipdb",
+    srcs = ["nexus/chipdb-LIFCL.cc"],
+    deps = [
+        ":nextpnr-nexus-defs",
+        ":nextpnr_kernel_headers",
+    ],
+    # The chipdb TU only self-registers an EmbeddedFile (static init); without
+    # alwayslink the linker drops it and get_chipdb() fails at runtime.
+    alwayslink = True,
+)
+
+# Nexus architecture - core
+cc_library(
+    name = "nextpnr-nexus-core",
+    srcs = [
+        # Nexus arch sources
+        "nexus/arch.cc",
+        "nexus/arch_place.cc",
+        "nexus/arch_pybindings.cc",
+        "nexus/fasm.cc",
+        "nexus/global.cc",
+        "nexus/io.cc",
+        "nexus/pack.cc",
+        "nexus/pdc.cc",
+        "nexus/pins.cc",
+        "nexus/post_place.cc",
+        # Common kernel sources
+        "common/kernel/archcheck.cc",
+        "common/kernel/basectx.cc",
+        "common/kernel/bits.cc",
+        "common/kernel/command.cc",
+        "common/kernel/context.cc",
+        "common/kernel/design_utils.cc",
+        "common/kernel/embed.cc",
+        "common/kernel/handle_error.cc",
+        "common/kernel/idstring.cc",
+        "common/kernel/idstringlist.cc",
+        "common/kernel/log.cc",
+        "common/kernel/nextpnr.cc",
+        "common/kernel/nextpnr_assertions.cc",
+        "common/kernel/nextpnr_namespaces.cc",
+        "common/kernel/nextpnr_types.cc",
+        "common/kernel/property.cc",
+        "common/kernel/pybindings.cc",
+        "common/kernel/report.cc",
+        "common/kernel/sdc.cc",
+        "common/kernel/sdf.cc",
+        "common/kernel/str_ring_buffer.cc",
+        "common/kernel/svg.cc",
+        "common/kernel/timing.cc",
+        "common/kernel/timing_log.cc",
+        # Common place sources
+        "common/place/detail_place_core.cc",
+        "common/place/parallel_refine.cc",
+        "common/place/place_common.cc",
+        "common/place/placer1.cc",
+        "common/place/placer_heap.cc",
+        "common/place/placer_static.cc",
+        "common/place/timing_opt.cc",
+        # Common route sources
+        "common/route/router1.cc",
+        "common/route/router2.cc",
+        # Frontend sources
+        "frontend/json_frontend.cc",
+        # JSON sources
+        "json/jsonwrite.cc",
+        # FFT sources
+        "3rdparty/oourafft/fftsg.cc",
+        "3rdparty/oourafft/fftsg2d.cc",
+    ],
+    hdrs = [
+        "nexus/arch_pybindings.h",
+        "nexus/archdefs.h",
+        "nexus/bba_version.inc",
+        "nexus/constids.inc",
+    ],
+    deps = [
+        ":nextpnr-nexus-chipdb",
+        ":nextpnr-nexus-defs",
+        ":nextpnr_frontend",
+        ":nextpnr_json",
+        ":nextpnr_kernel",
+        ":nextpnr_kernel_headers",
+        ":nextpnr_place",
+        ":nextpnr_route",
+        ":oourafft",
+        "@boost.filesystem//:boost.filesystem",
+        "@boost.iostreams//:boost.iostreams",
+        "@boost.program_options//:boost.program_options",
+        "@boost.system//:boost.system",
+        "@boost.thread//:boost.thread",
+        "@eigen",
+        "@rules_python//python/cc:current_py_cc_libs",
+    ],
+)
+
+# Nexus architecture - binary
+cc_binary(
+    name = "nextpnr-nexus",
+    srcs = ["nexus/main.cc"],
+    visibility = ["//visibility:public"],
+    deps = [
+        ":nextpnr-nexus-core",
+    ],
+)
+
 # Aliases
 
 alias(

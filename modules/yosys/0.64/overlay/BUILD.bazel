@@ -383,6 +383,11 @@ cc_library(
     cxxopts = COMMON_CXXOPTS,
     visibility = ["//visibility:public"],
     deps = [":kernel"],
+    # Like the other frontends: keep the static command registrations. The
+    # unified `read` command (with a non-Verific fallback) lives here and is used
+    # by the driver to load positional input files; without alwayslink the linker
+    # drops verific.o and `read`/`verific` become "No such command".
+    alwayslink = True,
 )
 
 cc_library(
@@ -1082,6 +1087,24 @@ cc_library(
     alwayslink = True,
 )
 
+# Lattice architecture synthesis passes (synth_lattice + the synth_nexus /
+# synth_ecp5 wrappers, plus the GSR pass). Matches techlibs/lattice/Makefile.inc
+# (OBJS). No pmgen — both are plain ScriptPass/Pass. The cell-library data is
+# staged into share/{lattice,nexus,ecp5} by yosys_share below.
+cc_library(
+    name = "techlib_lattice",
+    srcs = [
+        "techlibs/lattice/lattice_gsr.cc",
+        "techlibs/lattice/synth_lattice.cc",
+    ],
+    conlyopts = COMMON_COPTS,
+    cxxopts = COMMON_CXXOPTS,
+    local_defines = COMMON_DEFINES,
+    visibility = ["//visibility:public"],
+    deps = [":kernel"],
+    alwayslink = True,
+)
+
 # Main yosys binary
 cc_binary(
     name = "yosys",
@@ -1138,6 +1161,7 @@ cc_binary(
         ":sha1",
         ":subcircuit",
         ":techlib_common",
+        ":techlib_lattice",
         "@abc",
         "@cxxopts",
         "@libffi",
