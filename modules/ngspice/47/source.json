@@ -1,0 +1,33 @@
+{
+    "url": "https://downloads.sourceforge.net/project/ngspice/ng-spice-rework/47/ngspice-47.tar.gz",
+    "integrity": "sha256-iU5kllHxg4oUCV5aVDnn06pj6H7eFNKDFz/aT83vZ18=",
+    "strip_prefix": "ngspice-47",
+    "overlay": {
+        "BUILD.bazel": "sha256-rjqNt/mF+5t2d20XKTvmDpDfwVKf7JQd5XeAEzt8gcc=",
+        "MODULE.bazel": "sha256-S+1KGXW8N68dt1lScARlkMjQ0JYtvqw64urmBwnOUS8=",
+        "bazel_configure.sh": "sha256-FI9N5ZOK+xSWJtfF3KFUd5xJx56GOXt3X+ij8pYN9ZQ=",
+        "bazel_test/.spiceinit": "sha256-xY7LO+F7+a9ZZp4N7Mx6F4mdPku/TWtJkDHW/PGwhks=",
+        "bazel_test/BUILD.bazel": "sha256-fWlbWB78pj+U3Sq1YGesCGB7my1K/jkDjka7SDD5Emo=",
+        "bazel_test/MODULE.bazel": "sha256-tYwO7vVdv14MbinCRvl9Euw8tjVB7ksMMpp324n05zs=",
+        "bazel_test/clang_openmp/BUILD.bazel": "sha256-lk6L01wJwUX9/Fiw4BMa8wbhx7jwXB7/qmKX3H8YOuc=",
+        "bazel_test/clang_openmp/consumer.cc": "sha256-NXZWjGXX21vtkweT5dsZxeFdYSmoQkk0Iw7HB5oymH8=",
+        "bazel_test/cli_smoke.sh": "sha256-3ASSdL9i/EXzLJCVYTJn2qN6Ku56QQyUCeQmoG+AnPg=",
+        "bazel_test/gcc_openmp/BUILD.bazel": "sha256-dHyv9CxHRW7uhh9ekIsJE9jxBUSHIDJsMCfr4NpFZWQ=",
+        "bazel_test/gcc_openmp/consumer.cc": "sha256-jvco6LswdnX/HmYq0IK6za9V90+M0/tkyyppw2/F+Lc=",
+        "bazel_test/openmp_bsim.cir": "sha256-SmX0PDgWE5rLeqgzEKjsuFLehzqGELWTr0ULUryABew=",
+        "bazel_test/runtime_scripts.cir": "sha256-25IkioNQ/OtiCupXiR95UW2uvCXJ7WxMSWqDkSHJhjc=",
+        "bazel_test/shared_smoke.cc": "sha256-rltYqep+PwsO45zwac/qpQX8c0qAeVX23fAWgP7dJac=",
+        "bazel_test/voltage_divider.cir": "sha256-fsHItOPeBzmINg1ZC5mQ7twZLiLZ5lML+rDtPKsa2So=",
+        "bazel_test/xspice_analog.cir": "sha256-z6y6wgnK/lznXn+D+b0g907SqhKsetM97snyJzYGc3c=",
+        "bazel_test/xspice_digital.cir": "sha256-ICGj38a8ANpXT4taBvNY6AxOUn0lNmfunXexy7wxPO8=",
+        "private/BUILD.bazel": "sha256-0A7VWfEBkor2zm0sK/vk4faZqsVtsM4+w1lEmCzcW44=",
+        "private/ngspice.sh.in": "sha256-9/5nJuVFxfnSnF0yKkY6cPK+TvXY7OCTRt4luUbUKcQ=",
+        "private/outputs.bzl": "sha256-MYVN0wC4Yz2gFCddBOwIFRCVNJyRy+VklizNCTUDuJ4="
+    },
+    "patches": {
+        "codemodel-quoted-paths.patch": "sha256-2MiSWGPbDGvtWESft+nO70z9h6saByMTsowEoNa7LRA=",
+        "configure-portability.patch": "sha256-zlpOyhD2XkyHWs3C1xWZ7U0YJe4s+SFeT+Zr3L1gJcY=",
+        "disabled-xspice.patch": "sha256-b8bwDTG8rVikdXvoR8bcT0Bkh9mSycUec+gfgpeR4no="
+    },
+    "patch_strip": 1
+}

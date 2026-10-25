@@ -1,0 +1,7 @@
+Bazel runtime script lookup
+.control
+spectrum
+source input_probe
+quit
+.endc
+.end
