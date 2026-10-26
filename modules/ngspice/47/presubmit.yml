@@ -98,6 +98,7 @@ bcr_test_module:
       - '--host_platform=@llvm//platforms:macos_aarch64'
       - '--repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1'
       - '--repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1'
+      - '--repo_env=BAZEL_MACOS_USE_HOST_SDK=0'
       - '--nosandbox_default_allow_network'
       test_targets:
       - '//:all'
