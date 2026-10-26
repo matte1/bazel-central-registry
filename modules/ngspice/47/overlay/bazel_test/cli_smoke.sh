@@ -106,6 +106,42 @@ awk '
   END { if (NR != 2) exit 1 }
 ' divider.dat || { cat divider.log >&2; echo 'Incorrect voltage divider result' >&2; exit 1; }
 
+run_circuit "$data_dir/klu_rc.cir" klu.log
+if ! grep -Fq 'Using KLU as Direct Linear Solver' klu.log; then
+  cat klu.log >&2
+  echo 'The RC regression did not select the KLU solver' >&2
+  exit 1
+fi
+for file in klu-op.dat klu-real-again.dat; do
+  check_numeric_data "$file" 3
+  awk '
+    function abs(x) { return x < 0 ? -x : x }
+    NR == 1 { next }
+    NF != 3 || abs($2 - 5) > 1e-8 || abs($3 + 0.005) > 1e-11 { bad = 1 }
+    END { exit (bad || NR != 2) }
+  ' "$file" || { cat klu.log >&2; echo "KLU real solve failed: $file" >&2; exit 1; }
+done
+check_numeric_data klu-ac.dat 5
+awk '
+  function abs(x) { return x < 0 ? -x : x }
+  NR == 1 { next }
+  {
+    expected_frequency = 10 * exp(log(10) * (NR - 2) / 4)
+    omega_rc = 2 * atan2(0, -1) * $1 * 0.001
+    expected_real = 2 / (4 + omega_rc * omega_rc)
+    expected_imag = -omega_rc / (4 + omega_rc * omega_rc)
+    if (abs($1 - expected_frequency) > 1e-9 * expected_frequency ||
+        abs($2 - expected_real) > 1e-9 || abs($3 - expected_imag) > 1e-9 ||
+        abs($4 - (expected_real - 1) / 1000) > 1e-12 ||
+        abs($5 - expected_imag / 1000) > 1e-12) bad = 1
+  }
+  END { exit (bad || NR != 18) }
+' klu-ac.dat || {
+  cat klu.log >&2
+  echo 'KLU complex AC solve differs from the analytic RC transfer function' >&2
+  exit 1
+}
+
 if [[ $expect_xspice == true ]]; then
   run_circuit "$data_dir/xspice_analog.cir" analog.log
   check_numeric_data analog.dat 3
@@ -173,9 +209,9 @@ if [[ -n ${TEST_SRCDIR:-} && ${NGSPICE_BCR_MANIFEST_TEST:-0} == 0 ]]; then
   # Re-run the complete suite with only a manifest and a runtime path containing
   # spaces. This exercises the launcher and quoted code-model paths together.
   # Sandboxed sh_test executions may have only the symlink tree, without its
-  # MANIFEST file. Find the foreign_cc install tree without a repository name.
+  # MANIFEST file. Find the native runtime tree without a repository name.
   runtime_directories=()
-  for candidate in "$TEST_SRCDIR"/*/*/ngspice_cli; do
+  for candidate in "$TEST_SRCDIR"/*/cli_runtime; do
     if [[ -x "$candidate/bin/ngspice" ]]; then
       runtime_directories+=("$candidate")
     fi
@@ -186,8 +222,44 @@ if [[ -n ${TEST_SRCDIR:-} && ${NGSPICE_BCR_MANIFEST_TEST:-0} == 0 ]]; then
   fi
   runtime_directory=${runtime_directories[0]}
   runtime_key=${runtime_directory#"$TEST_SRCDIR/"}
+  # Check optional co-simulation assets as well as the models loaded by the
+  # simulator. Bazel may represent tree-artifact files as sandbox runfile links.
+  runtime_assets=(share/ngspice/scripts/{spinit,setplot,spectrum})
+  if [[ $expect_xspice == true ]]; then
+    runtime_assets+=(
+      lib/ngspice/{spice2poly,analog,digital,xtradev,xtraevt,table,tlines}.cm
+      lib/ngspice/{ivlng.so,ivlng.vpi}
+      share/ngspice/scripts/{vlnggen,ghnggen}
+      share/ngspice/scripts/src/{verilator_shim.cpp,verilator_main.cpp,ghdl_shim.h,ghdl_shim.c,ghdl_vpi.c}
+      share/ngspice/scripts/src/ngspice/{cosim.h,miftypes.h,cmtypes.h,coroutine.h,coroutine_cosim.h,coroutine_shim.h}
+    )
+  else
+    for model in spice2poly analog digital xtradev xtraevt table tlines ivlng; do
+      for suffix in cm so vpi; do
+        if [[ -e "$runtime_directory/lib/ngspice/$model.$suffix" ]]; then
+          echo "XSPICE-disabled runtime unexpectedly contains $model.$suffix" >&2
+          exit 1
+        fi
+      done
+    done
+  fi
+  for asset in "${runtime_assets[@]}"; do
+    if [[ ! -s "$runtime_directory/$asset" ]]; then
+      echo "Missing runtime asset: $asset" >&2
+      exit 1
+    fi
+  done
+  if grep -Eq '@pkglibdir@|@XSPICEINIT@|bazel-out/|/execroot/' \
+      "$runtime_directory/share/ngspice/scripts/spinit"; then
+    echo 'Installed spinit contains unresolved placeholders or a build path' >&2
+    exit 1
+  fi
   relocated_runtime="$work_dir/runtime with spaces"
-  ln -s "$runtime_directory" "$relocated_runtime"
+  mkdir "$relocated_runtime"
+  # Materialize sandbox runfile links so this copy can run independently of the
+  # original tree. Make the copy writable for cleanup of read-only Bazel outputs.
+  cp -RL "$runtime_directory/." "$relocated_runtime/"
+  chmod -R u+w "$relocated_runtime"
   if [[ ! -x "$relocated_runtime/bin/ngspice" ]]; then
     echo 'The relocated ngspice executable is missing' >&2
     exit 1

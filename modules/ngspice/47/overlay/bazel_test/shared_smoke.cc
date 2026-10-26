@@ -56,6 +56,23 @@ std::vector<double> Values(std::string name) {
   return values;
 }
 
+std::vector<ngcomplex_t> ComplexValues(std::string name) {
+  const auto* vector = ngGet_Vec_Info(&name[0]);
+  if (!vector || !vector->v_compdata || vector->v_length < 1) {
+    std::fprintf(stderr, "Missing complex vector %s\n", name.c_str());
+    return {};
+  }
+  // ngGet_Vec_Info reuses one descriptor, so copy each result before another call.
+  std::vector<ngcomplex_t> values(vector->v_compdata, vector->v_compdata + vector->v_length);
+  for (std::size_t i = 0; i < values.size(); ++i) {
+    if (!std::isfinite(values[i].cx_real) || !std::isfinite(values[i].cx_imag)) {
+      std::fprintf(stderr, "%s: non-finite complex value at sample %zu\n", name.c_str(), i);
+      return {};
+    }
+  }
+  return values;
+}
+
 bool Expect(const char* name, double expected, double tolerance) {
   const auto values = Values(name);
   if (values.empty()) return false;
@@ -75,6 +92,47 @@ bool Feature(const char* banner, bool expected) {
     return false;
   }
   return true;
+}
+
+bool KluRealAndComplex() {
+  // A loaded RC divider exercises KLU's real and complex factorizations. Its
+  // transfer function is 1 / (2 + j * 2*pi*f*R*C), so both parts have independent
+  // analytic expectations instead of comparing two potentially broken solvers.
+  messages.clear();
+  if (!Circuit({"Bazel KLU real and complex solver", "Vsource input 0 DC 10 AC 1",
+                "Rseries input output 1k", "Rload output 0 1k", "Cload output 0 1u",
+                ".options klu", ".end"}, "op") ||
+      !Feature("Using KLU as Direct Linear Solver", true) ||
+      !Expect("v(output)", 5.0, 1e-8) ||
+      !Expect("i(vsource)", -0.005, 1e-11)) return false;
+  if (!Command("ac dec 4 10 100000")) return false;
+  // Ngspice stores every AC vector, including frequency, as complex data.
+  const auto frequencies = ComplexValues("frequency");
+  const auto voltages = ComplexValues("v(output)");
+  const auto currents = ComplexValues("i(vsource)");
+  if (frequencies.size() != 17 || voltages.size() != 17 || currents.size() != 17)
+    return false;
+  for (std::size_t i = 0; i < frequencies.size(); ++i) {
+    const double expected_frequency = 10.0 * std::pow(10.0, i / 4.0);
+    const double omega_rc = 2.0 * std::acos(-1.0) * frequencies[i].cx_real * 0.001;
+    const double expected_real = 2.0 / (4.0 + omega_rc * omega_rc);
+    const double expected_imag = -omega_rc / (4.0 + omega_rc * omega_rc);
+    const auto voltage = voltages[i];
+    const auto current = currents[i];
+    if (std::abs(frequencies[i].cx_real - expected_frequency) > 1e-9 * expected_frequency ||
+        std::abs(frequencies[i].cx_imag) > 1e-12 ||
+        std::abs(voltage.cx_real - expected_real) > 1e-9 ||
+        std::abs(voltage.cx_imag - expected_imag) > 1e-9 ||
+        std::abs(current.cx_real - (expected_real - 1.0) / 1000.0) > 1e-12 ||
+        std::abs(current.cx_imag - expected_imag / 1000.0) > 1e-12) {
+      std::fprintf(stderr, "KLU AC result differs from the RC transfer function at sample %zu\n", i);
+      return false;
+    }
+  }
+  // AC binds device pointers to complex entries; the next real solve must bind
+  // them back correctly without destroying and recreating the circuit.
+  return Command("op") && Expect("v(output)", 5.0, 1e-8) &&
+         Expect("i(vsource)", -0.005, 1e-11);
 }
 
 bool BsimThreadComparison() {
@@ -192,7 +250,8 @@ int main(int argc, char** argv) {
       !Feature("OpenMP multithreading for BSIM3, BSIM4 enabled", openmp)) return 1;
   if (!Circuit({"Bazel voltage divider", "V1 in 0 10", "R1 in out 1k",
                 "R2 out 0 1k", ".end"}, "op") ||
-      !Expect("v(out)", 5.0, 1e-8) || !BsimThreadComparison()) return 1;
+      !Expect("v(out)", 5.0, 1e-8) || !KluRealAndComplex() ||
+      !BsimThreadComparison()) return 1;
   if (!xspice) return 0;
   // Loading every packaged code-model library also detects missing runtime assets.
   for (const auto* model : {"spice2poly", "analog", "digital", "xtradev",

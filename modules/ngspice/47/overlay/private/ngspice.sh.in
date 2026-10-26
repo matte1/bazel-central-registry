@@ -12,6 +12,7 @@ source "${RUNFILES_DIR:-/dev/null}/$f" 2>/dev/null ||
 set -e
 
 install_dir="$(rlocation '@INSTALL_RUNFILE@')"
+install_dir="$(cd "$install_dir" && pwd -P)"
 init_dir="$(mktemp -d "${TMPDIR:-/tmp}/ngspice.XXXXXXXX")"
 trap 'rm -rf "$init_dir"' EXIT
 {
@@ -32,4 +33,5 @@ trap 'rm -rf "$init_dir"' EXIT
 } > "$init_dir/spinit"
 export SPICE_SCRIPTS="$init_dir"
 export SPICE_LIB_DIR="$install_dir/share/ngspice"
+export NGSPICE_CODE_MODEL_DIR="$install_dir/lib/ngspice"
 "$install_dir/bin/ngspice" "$@"

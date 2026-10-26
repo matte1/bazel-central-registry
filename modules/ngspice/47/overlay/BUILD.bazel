@@ -1,8 +1,12 @@
+load("@bazel_skylib//lib:selects.bzl", "selects")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag")
 load("@rules_cc//cc:cc_library.bzl", "cc_library")
-load("@rules_foreign_cc//foreign_cc:defs.bzl", "configure_make")
 load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
-load("//private:outputs.bzl", "linking_only", "openmp_header", "static_archive")
+load("//private:config.bzl", "ngspice_config")
+load("//private:core.bzl", "ngspice_libraries")
+load("//private:outputs.bzl", "linking_only", "openmp_header")
+load("//private:runtime.bzl", "ngspice_launcher", "ngspice_runtime")
+load("//private:xspice.bzl", "ngspice_code_models", "ngspice_cosimulation_modules")
 
 package(default_visibility = ["//visibility:private"])
 
@@ -30,13 +34,24 @@ config_setting(
     flag_values = {":openmp": "true"},
 )
 
-static_archive(
-    name = "openmp_archive",
-    dep = "@openmp",
+selects.config_setting_group(
+    name = "clang_openmp",
+    match_all = [
+        ":with_openmp",
+        "@rules_cc//cc/compiler:clang",
+    ],
 )
 
-# Keep LLVM's headers and runtime private. In particular, GCC consumers must
-# continue to use their compiler's omp.h together with libgomp.
+selects.config_setting_group(
+    name = "gcc_openmp",
+    match_all = [
+        ":with_openmp",
+        "@rules_cc//cc/compiler:gcc",
+    ],
+)
+
+# GCC uses its toolchain's omp.h and libgomp. Clang uses the declared LLVM
+# runtime; its header is an implementation dependency and cannot leak to users.
 openmp_header(
     name = "openmp_header",
     dep = "@openmp",
@@ -47,7 +62,6 @@ linking_only(
     dep = "@openmp",
 )
 
-# These rules_cc settings inspect the resolved C++ toolchain, not --compiler.
 cc_library(
     name = "openmp_runtime",
     linkopts = select({
@@ -60,162 +74,70 @@ cc_library(
     }),
 )
 
-# Use upstream's generated parsers and Makefile.in files from the release tarball.
-# No autotools regeneration, flex, bison, X11, or readline is needed.
-filegroup(
-    name = "sources",
-    srcs = glob(
-        ["**"],
-        exclude = [
-            "BUILD.bazel",
-            "MODULE.bazel",
-            "private/**",
-            "bazel_test/**",
-        ],
-    ),
-)
-
-CONFIGURE_OPTIONS = [
-    "--disable-maintainer-mode",
-    "--disable-dependency-tracking",
-    "--disable-debug",
-    "--disable-cider",
-    "--disable-osdi",
-    "--disable-oldapps",
-    "--without-x",
-    "--without-readline",
-    "--without-editline",
-    "--without-fftw3",
-] + select({
-    ":with_xspice": ["--enable-xspice"],
-    "//conditions:default": ["--disable-xspice"],
-}) + select({
-    ":with_openmp": ["--enable-openmp"],
-    "//conditions:default": ["--disable-openmp"],
-})
-
-OPENMP_DATA = select({
-    ":with_openmp": [
-        ":openmp_archive",
-        ":openmp_header",
-    ],
-    "//conditions:default": [],
-})
-
-BASE_ENV = {
-    # Apple's libtool is not an archiver; let configure choose the proper ar.
-    "AR": "",
-    # Use the release archive's configure timestamp, not the build wall clock.
-    "SOURCE_DATE_EPOCH": "1786368593",
-    "LC_ALL": "C",
-    # Do not opportunistically consume undeclared host audio libraries.
-    "ac_cv_header_sndfile_h": "no",
-    "ac_cv_lib_sndfile_sf_command": "no",
-    "ac_cv_header_samplerate_h": "no",
-    "ac_cv_lib_samplerate_src_process": "no",
-}
-
-BUILD_ENV = select({
-    ":with_openmp": BASE_ENV | {
-        "NGSPICE_OPENMP_ARCHIVE": "$(execpath :openmp_archive)",
-        "NGSPICE_OPENMP_HEADER": "$(execpath :openmp_header)",
-    },
-    "//conditions:default": BASE_ENV,
-})
-
-# The Autotools build and CLI launcher are supported on Linux and macOS.
 SUPPORTED_PLATFORMS = select({
     "@platforms//os:linux": [],
     "@platforms//os:macos": [],
     "//conditions:default": ["@platforms//:incompatible"],
 })
 
-configure_make(
-    name = "ngspice_build",
-    # Keep shared-module support for XSPICE, but force the simulator API archive
-    # to be static so the final application owns a single OpenMP runtime.
-    args = [
-        "-j4",
-        "libngspice_la_CFLAGS=",
-        "libngspice_la_LDFLAGS=-static",
-    ],
-    build_data = OPENMP_DATA,
-    configure_command = "bazel_configure.sh",
-    configure_options = CONFIGURE_OPTIONS + [
-        "--with-ngshared",
-        "--enable-shared",
-        "--enable-static",
-        "--with-pic",
-    ],
-    configure_prefix = "bash",
-    # The installed sharedspice.h guards its event API with this definition.
-    defines = select({
-        ":with_xspice": ["XSPICE"],
-        "//conditions:default": [],
-    }),
-    env = BUILD_ENV,
-    lib_name = "ngspice_library",
-    lib_source = ":sources",
-    out_static_libs = ["libngspice.a"],
-    target_compatible_with = SUPPORTED_PLATFORMS,
-)
+ngspice_config(name = "config")
 
-# The final executable resolves one OpenMP runtime. Embedding a private static
-# runtime in a shared ngspice library aborts when a consumer also uses OpenMP.
-cc_library(
+ngspice_libraries(
     name = "ngspice",
-    linkopts = select({
-        "@platforms//os:linux": [
-            "-lm",
-            "-lpthread",
-            "-ldl",
-        ],
-        "//conditions:default": [],
-    }),
-    target_compatible_with = SUPPORTED_PLATFORMS,
-    visibility = ["//visibility:public"],
-    deps = [":ngspice_build"] + select({
-        ":with_openmp": [":openmp_runtime"],
-        "//conditions:default": [],
-    }),
-)
-
-configure_make(
-    name = "cli_build",
-    args = ["-j4"],
-    build_data = OPENMP_DATA,
-    configure_command = "bazel_configure.sh",
-    configure_options = CONFIGURE_OPTIONS,
-    configure_prefix = "bash",
-    env = BUILD_ENV,
-    lib_name = "ngspice_cli",
-    lib_source = ":sources",
-    out_binaries = ["ngspice"],
     target_compatible_with = SUPPORTED_PLATFORMS,
 )
 
-# Complete install trees include the seven XSPICE code-model libraries.
-filegroup(
+ngspice_code_models(
+    name = "code_models",
+    config = ":config",
+    target_compatible_with = SUPPORTED_PLATFORMS,
+)
+
+ngspice_cosimulation_modules(
+    name = "cosimulation_modules",
+    config = ":config",
+    target_compatible_with = SUPPORTED_PLATFORMS,
+)
+
+ngspice_runtime(
     name = "runtime",
-    srcs = [":ngspice_build"],
-    output_group = "gen_dir",
+    code_models = select({
+        ":with_xspice": [":code_models"],
+        "//conditions:default": [],
+    }),
+    cosimulation_modules = select({
+        ":with_xspice": [":cosimulation_modules"],
+        "//conditions:default": [],
+    }),
+    target_compatible_with = SUPPORTED_PLATFORMS,
     visibility = ["//visibility:public"],
+    xspice = select({
+        ":with_xspice": True,
+        "//conditions:default": False,
+    }),
 )
 
-filegroup(
+ngspice_runtime(
     name = "cli_runtime",
-    srcs = [":cli_build"],
-    output_group = "gen_dir",
+    cli = ":cli_native",
+    code_models = select({
+        ":with_xspice": [":code_models"],
+        "//conditions:default": [],
+    }),
+    cosimulation_modules = select({
+        ":with_xspice": [":cosimulation_modules"],
+        "//conditions:default": [],
+    }),
+    target_compatible_with = SUPPORTED_PLATFORMS,
+    xspice = select({
+        ":with_xspice": True,
+        "//conditions:default": False,
+    }),
 )
 
-genrule(
+ngspice_launcher(
     name = "cli_launcher",
-    srcs = [
-        "//private:ngspice.sh.in",
-        ":cli_runtime",
-    ],
-    outs = ["ngspice_launcher.sh"],
-    cmd = "sed 's|@INSTALL_RUNFILE@|$(rlocationpath :cli_runtime)|g' $(execpath //private:ngspice.sh.in) > $@",
+    runtime = ":cli_runtime",
 )
 
 sh_binary(
