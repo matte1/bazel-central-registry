@@ -1,0 +1,176 @@
+# Temporary workflow for a separate validation branch. Keep this commit out of
+# the BCR pull request. A push trigger works without adding the file to main.
+name: Native ngspice Linux validation
+
+on:
+  push:
+    branches: [ngspice-native-linux-validation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ngspice-native-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    if: github.repository == 'matte1/bazel-central-registry'
+    name: ${{ matrix.compiler }} / Bazel ${{ matrix.bazel }} / XSPICE=${{ matrix.xspice }} / OpenMP=${{ matrix.openmp }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {compiler: gcc, bazel: 8.8.2, xspice: 'true', openmp: 'true'}
+          - {compiler: clang, bazel: 8.8.2, xspice: 'true', openmp: 'true'}
+          - {compiler: gcc, bazel: 9.3.1, xspice: 'true', openmp: 'true'}
+          - {compiler: gcc, bazel: 9.3.1, xspice: 'true', openmp: 'false'}
+          - {compiler: gcc, bazel: 9.3.1, xspice: 'false', openmp: 'true'}
+          - {compiler: gcc, bazel: 9.3.1, xspice: 'false', openmp: 'false'}
+          - {compiler: clang, bazel: 9.3.1, xspice: 'true', openmp: 'true'}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out the validation commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Select the Linux compiler
+        env:
+          COMPILER: ${{ matrix.compiler }}
+        run: |
+          sudo apt-get update
+          if [[ "$COMPILER" == gcc ]]; then
+            sudo apt-get install --yes --no-install-recommends gcc-13 g++-13
+            cc=gcc-13
+            cxx=g++-13
+          else
+            sudo apt-get install --yes --no-install-recommends clang-18
+            cc=clang-18
+            cxx=clang++-18
+          fi
+          printf 'CC=%s\nCXX=%s\n' "$(command -v "$cc")" "$(command -v "$cxx")" >> "$GITHUB_ENV"
+          "$cc" --version
+          "$cxx" --version
+
+      - name: Install the exact Bazel release
+        env:
+          BAZEL_VERSION: ${{ matrix.bazel }}
+        run: |
+          release="https://github.com/bazelbuild/bazel/releases/download/$BAZEL_VERSION"
+          filename="bazel-$BAZEL_VERSION-linux-x86_64"
+          mkdir -p "$RUNNER_TEMP/bazel-download" "$RUNNER_TEMP/bin"
+          cd "$RUNNER_TEMP/bazel-download"
+          curl --fail --location --retry 5 --retry-all-errors "$release/$filename" --output "$filename"
+          curl --fail --location --retry 5 --retry-all-errors "$release/$filename.sha256" --output "$filename.sha256"
+          sha256sum --check "$filename.sha256"
+          install -m 0755 "$filename" "$RUNNER_TEMP/bin/bazel"
+          printf '%s\n' "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bin/bazel" --version
+
+      - name: Materialize the BCR archive, overlay, and patches
+        run: |
+          module_dir="$GITHUB_WORKSPACE/modules/ngspice/47"
+          source_tree="$RUNNER_TEMP/ngspice"
+          archive="$RUNNER_TEMP/ngspice-47.tar.gz"
+          url="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["url"])' "$module_dir/source.json")"
+          curl --fail --location --retry 5 --retry-all-errors "$url" --output "$archive"
+          python3 - "$module_dir" "$archive" <<'PY'
+          import base64
+          import hashlib
+          import json
+          from pathlib import Path
+          import sys
+
+          module = Path(sys.argv[1])
+          metadata = json.loads((module / "source.json").read_text())
+
+          def verify(path, integrity):
+              algorithm, encoded = integrity.split("-", 1)
+              assert algorithm == "sha256", (path, algorithm)
+              actual = hashlib.sha256(path.read_bytes()).digest()
+              assert actual == base64.b64decode(encoded, validate=True), f"Integrity mismatch: {path}"
+
+          verify(Path(sys.argv[2]), metadata["integrity"])
+          assert metadata["strip_prefix"] == "ngspice-47"
+          overlay = module / "overlay"
+          present = {str(p.relative_to(overlay)) for p in overlay.rglob("*") if p.is_file()}
+          assert present == set(metadata["overlay"]), "source.json must list every overlay file exactly"
+          for relative, integrity in metadata["overlay"].items():
+              verify(overlay / relative, integrity)
+          for relative, integrity in metadata.get("patches", {}).items():
+              verify(module / "patches" / relative, integrity)
+          print("Verified archive, overlay manifest, and patch checksums")
+          PY
+          mkdir -p "$source_tree"
+          tar -xzf "$archive" --strip-components=1 -C "$source_tree"
+          cp -a "$module_dir/overlay/." "$source_tree/"
+          strip="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("patch_strip", 0))' "$module_dir/source.json")"
+          while IFS= read -r patch_file; do
+            patch --batch --forward --fuzz=0 -d "$source_tree" -p"$strip" < "$module_dir/patches/$patch_file"
+          done < <(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1])).get("patches", {})))' "$module_dir/source.json")
+          # The BCR test module lives immediately beneath this materialized
+          # repository. Set its ngspice override explicitly to the parent tree.
+          python3 - "$source_tree/bazel_test/MODULE.bazel" <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          path = Path(sys.argv[1])
+          content = path.read_text()
+          content = re.sub(
+              r'\nlocal_path_override\(\s*module_name\s*=\s*"ngspice",\s*path\s*=\s*"[^"]*",?\s*\)\s*',
+              '\n',
+              content,
+          )
+          content += '\nlocal_path_override(module_name = "ngspice", path = "..")\n'
+          path.write_text(content)
+          PY
+          printf 'NGSPICE_SOURCE_TREE=%s\n' "$source_tree" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/test-output"
+
+      - name: Test native API, CLI, runtime, and downstream OpenMP
+        env:
+          COMPILER: ${{ matrix.compiler }}
+          XSPICE: ${{ matrix.xspice }}
+          OPENMP: ${{ matrix.openmp }}
+        run: |
+          cd "$NGSPICE_SOURCE_TREE/bazel_test"
+          targets=(//:all)
+          if [[ "$COMPILER" == gcc ]]; then
+            targets+=(//gcc_openmp:consumer)
+          else
+            targets+=(//clang_openmp:consumer)
+          fi
+          bazel --output_user_root="$RUNNER_TEMP/bazel-root" test \
+            --jobs=4 \
+            --keep_going \
+            --test_output=errors \
+            --verbose_failures \
+            --repo_env=CC="$CC" \
+            --repo_env=CXX="$CXX" \
+            --@ngspice//:xspice="$XSPICE" \
+            --@ngspice//:openmp="$OPENMP" \
+            "${targets[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output/bazel.log"
+
+      - name: Collect test logs
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/test-output"
+          if [[ -d "$RUNNER_TEMP/ngspice/bazel_test/bazel-testlogs" ]]; then
+            cp -aL "$RUNNER_TEMP/ngspice/bazel_test/bazel-testlogs" "$RUNNER_TEMP/test-output/bazel-testlogs"
+          fi
+          printf '%s\n' "Commit: $GITHUB_SHA" "Compiler: ${CC:-unselected}" > "$RUNNER_TEMP/test-output/validation-commit.txt"
+
+      - name: Preserve validation logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ngspice-${{ matrix.compiler }}-bazel-${{ matrix.bazel }}-xspice-${{ matrix.xspice }}-openmp-${{ matrix.openmp }}
+          path: ${{ runner.temp }}/test-output
+          retention-days: 7
