@@ -101,8 +101,9 @@ and `@llvm//platforms:macos_aarch64` on macOS arm64 for both `--platforms` and
 `--host_platform`, covering the simulator and execution-platform generators.
 The Linux configuration uses dynamically linked glibc so XSPICE can load its
 code-model plugins. The macOS configuration uses the toolchain's default
-deployment minimum of 14.0. Local C/C++ toolchain detection is disabled in these
-jobs, and build-action networking is disabled after dependency fetching.
+deployment minimum of 14.0. These jobs disable local C/C++ toolchain detection,
+require native sandbox execution, and disable build-action networking after
+dependency fetching.
 The test-only `bazel_test/hermetic_llvm.MODULE.bazel` fragment supplies the pin;
 ngspice itself neither depends on LLVM nor registers a compiler toolchain.
 
