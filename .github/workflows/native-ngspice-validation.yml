@@ -1,6 +1,6 @@
 # Temporary workflow for a separate validation branch. Keep this commit out of
 # the BCR pull request. A push trigger works without adding the file to main.
-name: Native ngspice Linux validation
+name: Hermetic LLVM ngspice Linux validation
 
 on:
   push:
@@ -11,26 +11,19 @@ permissions:
   contents: read
 
 concurrency:
-  group: ngspice-native-linux-${{ github.ref }}
+  group: ngspice-hermetic-llvm-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   linux:
     if: github.repository == 'matte1/bazel-central-registry'
-    name: ${{ matrix.compiler }} / Bazel ${{ matrix.bazel }} / XSPICE=${{ matrix.xspice }} / OpenMP=${{ matrix.openmp }}
+    name: LLVM 23.1.2 / Bazel ${{ matrix.bazel }} / glibc 2.28
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - {compiler: gcc, bazel: 8.8.2, xspice: 'true', openmp: 'true'}
-          - {compiler: clang, bazel: 8.8.2, xspice: 'true', openmp: 'true'}
-          - {compiler: gcc, bazel: 9.3.1, xspice: 'true', openmp: 'true'}
-          - {compiler: gcc, bazel: 9.3.1, xspice: 'true', openmp: 'false'}
-          - {compiler: gcc, bazel: 9.3.1, xspice: 'false', openmp: 'true'}
-          - {compiler: gcc, bazel: 9.3.1, xspice: 'false', openmp: 'false'}
-          - {compiler: clang, bazel: 9.3.1, xspice: 'true', openmp: 'true'}
+        bazel: ['8.8.2', '9.3.1']
     defaults:
       run:
         shell: bash
@@ -39,24 +32,6 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-
-      - name: Select the Linux compiler
-        env:
-          COMPILER: ${{ matrix.compiler }}
-        run: |
-          sudo apt-get update
-          if [[ "$COMPILER" == gcc ]]; then
-            sudo apt-get install --yes --no-install-recommends gcc-13 g++-13
-            cc=gcc-13
-            cxx=g++-13
-          else
-            sudo apt-get install --yes --no-install-recommends clang-18
-            cc=clang-18
-            cxx=clang++-18
-          fi
-          printf 'CC=%s\nCXX=%s\n' "$(command -v "$cc")" "$(command -v "$cxx")" >> "$GITHUB_ENV"
-          "$cc" --version
-          "$cxx" --version
 
       - name: Install the exact Bazel release
         env:
@@ -131,32 +106,194 @@ jobs:
           content += '\nlocal_path_override(module_name = "ngspice", path = "..")\n'
           path.write_text(content)
           PY
+          # Share the exact pinned LLVM dev dependency with BCR presubmit.
+          cat "$source_tree/bazel_test/hermetic_llvm.MODULE.bazel" >> "$source_tree/bazel_test/MODULE.bazel"
+          # This consumer-only rc applies identical toolchain selection to test
+          # and aquery. Host tools use the same pinned glibc execution platform.
+          cat > "$source_tree/bazel_test/hermetic-ci.bazelrc" <<'RC'
+          build --extra_toolchains=@llvm//toolchain:all
+          build --platforms=@llvm//platforms:linux_x86_64_gnu.2.28
+          build --host_platform=@llvm//platforms:linux_x86_64_gnu.2.28
+          build --repo_env=BAZEL_DO_NOT_DETECT_CPP_TOOLCHAIN=1
+          build --repo_env=BAZEL_NO_APPLE_CPP_TOOLCHAIN=1
+          build --nosandbox_default_allow_network
+          build --@ngspice//:xspice=true
+          build --@ngspice//:openmp=true
+          RC
           printf 'NGSPICE_SOURCE_TREE=%s\n' "$source_tree" >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/test-output"
 
-      - name: Test native API, CLI, runtime, and downstream OpenMP
-        env:
-          COMPILER: ${{ matrix.compiler }}
-          XSPICE: ${{ matrix.xspice }}
-          OPENMP: ${{ matrix.openmp }}
+      - name: Test with the pinned LLVM toolchain
         run: |
+          unset CC CXX
           cd "$NGSPICE_SOURCE_TREE/bazel_test"
-          targets=(//:all)
-          if [[ "$COMPILER" == gcc ]]; then
-            targets+=(//gcc_openmp:consumer)
-          else
-            targets+=(//clang_openmp:consumer)
-          fi
-          bazel --output_user_root="$RUNNER_TEMP/bazel-root" test \
+          cp MODULE.bazel hermetic-ci.bazelrc "$RUNNER_TEMP/test-output/"
+          bazel --output_user_root="$RUNNER_TEMP/hermetic-bazel-root" \
+            --nosystem_rc --nohome_rc --noworkspace_rc --bazelrc=hermetic-ci.bazelrc test \
             --jobs=4 \
             --keep_going \
             --test_output=errors \
             --verbose_failures \
-            --repo_env=CC="$CC" \
-            --repo_env=CXX="$CXX" \
-            --@ngspice//:xspice="$XSPICE" \
-            --@ngspice//:openmp="$OPENMP" \
-            "${targets[@]}" 2>&1 | tee "$RUNNER_TEMP/test-output/bazel.log"
+            --execution_log_json_file="$RUNNER_TEMP/test-output/execution.json" \
+            //:all //clang_openmp:consumer 2>&1 | tee "$RUNNER_TEMP/test-output/bazel.log"
+
+      - name: Record the configured C++ actions
+        if: always() && env.NGSPICE_SOURCE_TREE != ''
+        run: |
+          unset CC CXX
+          cd "$NGSPICE_SOURCE_TREE/bazel_test"
+          bazel --output_user_root="$RUNNER_TEMP/hermetic-bazel-root" \
+            --nosystem_rc --nohome_rc --noworkspace_rc --bazelrc=hermetic-ci.bazelrc aquery \
+            --output=jsonproto --include_commandline --include_param_files \
+            'mnemonic("CppCompile", deps(//:all + //clang_openmp:consumer))' \
+            > "$RUNNER_TEMP/test-output/actions.json" \
+            2> "$RUNNER_TEMP/test-output/aquery.log"
+          bazel --output_user_root="$RUNNER_TEMP/hermetic-bazel-root" \
+            --nosystem_rc --nohome_rc --noworkspace_rc --bazelrc=hermetic-ci.bazelrc info execution_root \
+            > "$RUNNER_TEMP/test-output/execution-root.txt"
+
+      - name: Assert LLVM compiled target code and execution tools
+        if: always() && env.NGSPICE_SOURCE_TREE != ''
+        run: |
+          cat > "$RUNNER_TEMP/test-output/audit-toolchains.py" <<'PY_AUDIT'
+          import collections
+          import functools
+          import json
+          from pathlib import Path
+          import re
+          import subprocess
+          import sys
+
+          out = Path(sys.argv[1])
+          graph = json.loads((out / "actions.json").read_text())
+          targets = {str(t["id"]): t["label"] for t in graph["targets"]}
+          configs = {str(c["id"]): c for c in graph["configuration"]}
+          fragments = {str(f["id"]): f for f in graph["pathFragments"]}
+          artifacts = {str(a["id"]): a for a in graph["artifacts"]}
+
+          @functools.lru_cache(None)
+          def fragment_path(fragment_id):
+              fragment = fragments[fragment_id]
+              parent = fragment.get("parentId")
+              return (fragment_path(str(parent)) + "/" if parent else "") + fragment["label"]
+
+          def artifact_path(artifact_id):
+              return fragment_path(str(artifacts[str(artifact_id)]["pathFragmentId"]))
+
+          # These are direct compiler binaries declared by llvm 0.8.25, not host
+          # compiler wrappers. Canonical repo separators differ between Bazel releases.
+          llvm_compiler = re.compile(
+              r"^external/llvm[+~][^/]*llvm-toolchain-minimal-linux-amd64/bin/clang(?:\+\+)?$"
+          )
+
+          def validate_compiler(args, label):
+              assert args and llvm_compiler.fullmatch(args[0]), (label, "unexpected compiler", args[:1])
+              assert not any("local_config_cc" in arg or "local_config_apple_cc" in arg for arg in args), label
+              return args[0]
+
+          def ngspice_label(label):
+              return bool(re.match(r"^@@?ngspice(?:[+~][^/]*)?//", label))
+
+          expected = {}
+          graph_counts = collections.Counter()
+          compilers = set()
+          exec_labels = set()
+          for action in graph["actions"]:
+              assert action["mnemonic"] == "CppCompile", action["mnemonic"]
+              label = targets[str(action["targetId"])]
+              if not ngspice_label(label):
+                  continue
+              compilers.add(validate_compiler(action["arguments"], label))
+              config = configs[str(action["configurationId"])]
+              kind = "exec" if config.get("isTool", False) else "target"
+              graph_counts[kind] += 1
+              if kind == "exec":
+                  exec_labels.add(label.split("//", 1)[1])
+              primary_output = artifact_path(action["primaryOutputId"])
+              key = (label, primary_output)
+              assert key not in expected, key
+              expected[key] = kind
+
+          assert graph_counts["target"] > 0 and graph_counts["exec"] > 0, graph_counts
+          assert {":code_models_cmpp", "private:runtime_tool"} <= exec_labels, exec_labels
+
+          # Bazel writes a stream of JSON objects, not one JSON array. Read one object
+          # at a time so large action-input lists do not require loading the whole log.
+          def execution_records(path):
+              decoder = json.JSONDecoder()
+              buffer = ""
+              with path.open() as stream:
+                  eof = False
+                  while True:
+                      buffer = buffer.lstrip()
+                      if buffer:
+                          try:
+                              item, end = decoder.raw_decode(buffer)
+                          except json.JSONDecodeError:
+                              if eof:
+                                  raise
+                          else:
+                              yield item
+                              buffer = buffer[end:]
+                              continue
+                      if eof:
+                          assert not buffer, "Trailing execution-log data"
+                          return
+                      chunk = stream.read(1024 * 1024)
+                      eof = not chunk
+                      buffer += chunk
+
+          seen = set()
+          execution_counts = collections.Counter()
+          executed_exec_labels = set()
+          runners = collections.Counter()
+          for record in execution_records(out / "execution.json"):
+              if record.get("mnemonic") != "CppCompile":
+                  continue
+              label = record.get("targetLabel", "")
+              if not ngspice_label(label):
+                  continue
+              validate_compiler(record["commandArgs"], label)
+              assert record.get("exitCode") == 0, (label, record.get("exitCode"))
+              assert not record.get("cacheHit", False), (label, "unexpected cache hit in fresh build")
+              assert record.get("runner") == "linux-sandbox", (label, record.get("runner"))
+              matches = {(label, path) for path in record.get("listedOutputs", [])} & expected.keys()
+              assert len(matches) == 1, (label, "compile not found in configured action graph")
+              key = matches.pop()
+              assert key not in seen, (label, "duplicate execution")
+              seen.add(key)
+              execution_counts[expected[key]] += 1
+              if expected[key] == "exec":
+                  executed_exec_labels.add(label.split("//", 1)[1])
+              runners[record["runner"]] += 1
+
+          # cc_library may register unused PIC/non-PIC actions in aquery. Every
+          # observed action must match the graph; require actual execution of both
+          # simulator code and each build-time generator instead of every variant.
+          assert execution_counts["target"] > 0 and execution_counts["exec"] > 0, execution_counts
+          assert {":code_models_cmpp", "private:runtime_tool"} <= executed_exec_labels, executed_exec_labels
+          execution_root = Path((out / "execution-root.txt").read_text().strip())
+          versions = {}
+          for compiler in sorted(compilers):
+              version = subprocess.run([str(execution_root / compiler), "--version"], check=True, text=True, capture_output=True).stdout
+              assert re.search(r"clang version 23\.1\.2(?:\s|$)", version), version
+              versions[compiler] = version
+          summary = {
+              "llvm_module": "0.8.25",
+              "platform": "linux_x86_64_gnu.2.28",
+              "ngspice_configured_compiles": dict(graph_counts),
+              "ngspice_executed_compiles": dict(execution_counts),
+              "configured_execution_tools": sorted(exec_labels),
+              "executed_execution_tools": sorted(executed_exec_labels),
+              "configured_but_unused_compiles": len(expected.keys() - seen),
+              "runners": dict(runners),
+              "compilers": versions,
+              "host_compiler_fallback_detected": False,
+          }
+          (out / "toolchain-evidence.json").write_text(json.dumps(summary, indent=2) + "\n")
+          print(json.dumps(summary, indent=2))
+          PY_AUDIT
+          python3 "$RUNNER_TEMP/test-output/audit-toolchains.py" "$RUNNER_TEMP/test-output"
 
       - name: Collect test logs
         if: always()
@@ -165,12 +302,12 @@ jobs:
           if [[ -d "$RUNNER_TEMP/ngspice/bazel_test/bazel-testlogs" ]]; then
             cp -aL "$RUNNER_TEMP/ngspice/bazel_test/bazel-testlogs" "$RUNNER_TEMP/test-output/bazel-testlogs"
           fi
-          printf '%s\n' "Commit: $GITHUB_SHA" "Compiler: ${CC:-unselected}" > "$RUNNER_TEMP/test-output/validation-commit.txt"
+          printf '%s\n' "Commit: $GITHUB_SHA" "LLVM module: 0.8.25" "LLVM: 23.1.2" "Platform: linux_x86_64_gnu.2.28" > "$RUNNER_TEMP/test-output/validation-commit.txt"
 
       - name: Preserve validation logs
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ngspice-${{ matrix.compiler }}-bazel-${{ matrix.bazel }}-xspice-${{ matrix.xspice }}-openmp-${{ matrix.openmp }}
+          name: ngspice-hermetic-llvm-bazel-${{ matrix.bazel }}
           path: ${{ runner.temp }}/test-output
           retention-days: 7
