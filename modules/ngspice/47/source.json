@@ -13,6 +13,7 @@
         "bazel_test/cli_smoke.sh": "sha256-NNY6Dx0ZZmVz60PN6pBErdui1Mt6Dzhx0bWDcgA3iRk=",
         "bazel_test/gcc_openmp/BUILD.bazel": "sha256-dHyv9CxHRW7uhh9ekIsJE9jxBUSHIDJsMCfr4NpFZWQ=",
         "bazel_test/gcc_openmp/consumer.cc": "sha256-jvco6LswdnX/HmYq0IK6za9V90+M0/tkyyppw2/F+Lc=",
+        "bazel_test/hermetic_llvm.MODULE.bazel": "sha256-eED/Xs3pUYLnKdkoSC5ct0VzyvjuNyLax6QJgAMDQd0=",
         "bazel_test/klu_rc.cir": "sha256-yo5RxtfxQEfaGz5XpyyKyr2dROwNXLs/nK4p0yR371M=",
         "bazel_test/openmp_bsim.cir": "sha256-SmX0PDgWE5rLeqgzEKjsuFLehzqGELWTr0ULUryABew=",
         "bazel_test/runtime_scripts.cir": "sha256-aMLyxm15JR3rN3vU/nzMCUfVWuRc7HlSJHf1tYSARPU=",

@@ -87,6 +87,25 @@ to be hermetic, including GCC's OpenMP runtime when using GCC. This module does
 not turn Bazel's automatically detected local compiler into a hermetic toolchain.
 Runtime user configuration and script lookup follow upstream behavior.
 
+Consumers can select [Hermetic LLVM](https://github.com/hermeticbuild/hermetic-llvm)
+in their root `MODULE.bazel`:
+
+```starlark
+bazel_dep(name = "llvm", version = "0.8.25")
+register_toolchains("@llvm//toolchain:all")
+```
+
+This pin selects LLVM 23.1.2, libc++, and a checksum-pinned macOS 26.5 SDK.
+The LLVM presubmit jobs use `@llvm//platforms:linux_x86_64_gnu.2.28` on Linux
+and `@llvm//platforms:macos_aarch64` on macOS arm64 for both `--platforms` and
+`--host_platform`, covering the simulator and execution-platform generators.
+The Linux configuration uses dynamically linked glibc so XSPICE can load its
+code-model plugins. The macOS configuration uses the toolchain's default
+deployment minimum of 14.0. Local C/C++ toolchain detection is disabled in these
+jobs, and build-action networking is disabled after dependency fetching.
+The test-only `bazel_test/hermetic_llvm.MODULE.bazel` fragment supplies the pin;
+ngspice itself neither depends on LLVM nor registers a compiler toolchain.
+
 The small `codemodel-quoted-paths.patch` applies ngspice's existing unquoting
 function to `codemodel` arguments, allowing runtime paths containing spaces.
 `disabled-xspice.patch` fixes an upstream option switch that references an
