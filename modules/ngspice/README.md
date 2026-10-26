@@ -44,6 +44,12 @@ environment override instead.
 The library exports the `XSPICE` preprocessor definition when enabled, exposing
 the event-node API in `sharedspice.h` to dependent C/C++ targets.
 
+The runtime also includes Icarus adapters and Verilator/GHDL support scripts;
+the external simulators are not build dependencies. Embedding applications can
+set `NGSPICE_CODE_MODEL_DIR` to `<tree>/lib/ngspice` for co-simulation fallback
+lookup. The CLI launcher sets this automatically. Explicit co-simulation paths
+and `lib_args` retain priority.
+
 ## Build choices
 
 The initial platform scope is native Linux and macOS builds. GCC uses the

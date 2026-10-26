@@ -27,7 +27,12 @@ def ngspice_libraries(name, target_compatible_with):
         ],
         deps = [":config"],
     )
-    common_sources = _flatten(CORE_SRCS) + _flatten(FRONTEND_SRCS) + _flatten(DEVICE_SRCS)
+
+    # klusmp dispatches to both KLU and Sparse. Keep both solver backends in
+    # one archive so GNU ld can resolve the Sparse references it introduces.
+    core_groups = dict(CORE_SRCS)
+    sparse_sources = core_groups.pop("src/maths/sparse")
+    common_sources = _flatten(core_groups) + _flatten(FRONTEND_SRCS) + _flatten(DEVICE_SRCS)
     openmp_copts = select({
         ":clang_openmp": ["-Xclang", "-fopenmp"],
         ":gcc_openmp": ["-fopenmp"],
@@ -54,7 +59,7 @@ def ngspice_libraries(name, target_compatible_with):
                 ":with_xspice": _flatten(XSPICE_CORE_SRCS),
                 "//conditions:default": [],
             }), []),
-            ("klu", KLU_COMMON_SRCS + KLU_REAL_SRCS, []),
+            ("solvers", KLU_COMMON_SRCS + KLU_REAL_SRCS + sparse_sources, []),
             ("klu_complex", KLU_COMPLEX_SRCS, ["COMPLEX"]),
         ]:
             cc_library(
@@ -68,7 +73,7 @@ def ngspice_libraries(name, target_compatible_with):
                 deps = compile_deps,
                 target_compatible_with = target_compatible_with,
             )
-        deps = [":" + variant + "_" + suffix for suffix in ["core", "klu", "klu_complex"]] + compile_deps + runtime_deps
+        deps = [":" + variant + "_" + suffix for suffix in ["core", "solvers", "klu_complex"]] + compile_deps + runtime_deps
         if variant == "api":
             cc_library(
                 name = "api_library",
