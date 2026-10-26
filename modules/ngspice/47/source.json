@@ -29,7 +29,7 @@
         "private/runtime.bzl": "sha256-B/hy0YufnKc44EG2BaqVMlFZ/ROFFPFKNQto+T+9xSw=",
         "private/runtime_tool.cc": "sha256-45J4v0OOkA1QpPBxq5Mb9EZsr+YWFhuxL7pVoOSa0kM=",
         "private/sources.bzl": "sha256-r0wOsfGLm6S5cS3ecude4VaxB1VluM51kxZ60MXGIpY=",
-        "private/xspice.bzl": "sha256-8egLDl/CB52f8sL1fnUBkO6P0bi/eUJLWSZo/OXNfLM=",
+        "private/xspice.bzl": "sha256-G+fOrOpsZQPmt0DmUZrKMvH2N9yp28HgaWW+j8KvMO4=",
         "private/xspice_sources.bzl": "sha256-qfZhjqT9mlX88lF2PQhDosADK/ICCWiG9T0zifw1N4Q="
     },
     "patches": {

@@ -82,11 +82,13 @@ def ngspice_code_models(name, config, source_root = "src", visibility = None, ta
     tlines_dir = source_root + "/xspice/tlines"
 
     cc_binary(
+        conlyopts = ["-std=gnu11"],
         name = prefix + "cmpp",
         srcs = [cmpp_dir + "/" + filename for filename in CMPP_SOURCES] + native.glob([cmpp_dir + "/*.h"]),
         visibility = ["//visibility:private"],
     )
     cc_library(
+        conlyopts = ["-std=gnu11"],
         name = prefix + "headers",
         hdrs = [icm_dir + "/dlmain.h"] + native.glob([
             source_root + "/include/ngspice/*.h",
@@ -97,6 +99,7 @@ def ngspice_code_models(name, config, source_root = "src", visibility = None, ta
         visibility = ["//visibility:private"],
     )
     cc_library(
+        conlyopts = ["-std=gnu11"],
         name = prefix + "common",
         srcs = [
             source_root + "/misc/dstring.c",
@@ -134,6 +137,7 @@ def ngspice_code_models(name, config, source_root = "src", visibility = None, ta
             visibility = ["//visibility:private"],
         )
         cc_library(
+            conlyopts = ["-std=gnu11"],
             name = prefix + family + "_headers",
             hdrs = [":" + registry] + native.glob([family_dir + "/**/*.h"], allow_empty = True),
             # table3D includes these C implementations textually; do not compile
@@ -163,6 +167,7 @@ def ngspice_code_models(name, config, source_root = "src", visibility = None, ta
                     visibility = ["//visibility:private"],
                 )
             cc_library(
+                conlyopts = ["-std=gnu11"],
                 name = model_name,
                 srcs = [":" + model_name + "_ifs", ":" + model_name + "_mod"],
                 # The generated code keeps relative textual includes from the
@@ -182,6 +187,7 @@ def ngspice_code_models(name, config, source_root = "src", visibility = None, ta
 
         module = name + "/" + family + ".cm"
         cc_binary(
+            conlyopts = ["-std=gnu11"],
             name = prefix + family + "_module",
             srcs = [icm_dir + "/dlmain.c"] + [
                 family_dir + "/" + udn + "/udnfunc.c"
@@ -233,6 +239,7 @@ def ngspice_cosimulation_modules(name, config, source_root = "src", visibility =
     """
     verilog = source_root + "/xspice/verilog"
     cc_library(
+        conlyopts = ["-std=gnu11"],
         name = name + "_headers",
         hdrs = native.glob([
             source_root + "/include/ngspice/*.h",
@@ -247,6 +254,7 @@ def ngspice_cosimulation_modules(name, config, source_root = "src", visibility =
     for filename, source in [("ivlng.so", "icarus_shim.c"), ("ivlng.vpi", "vpi.c")]:
         native_name = name + "_" + source[:-2]
         cc_binary(
+            conlyopts = ["-std=gnu11"],
             name = native_name,
             srcs = [verilog + "/" + source],
             deps = [":" + name + "_headers"],
