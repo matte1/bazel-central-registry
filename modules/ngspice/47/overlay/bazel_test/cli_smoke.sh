@@ -32,8 +32,8 @@ cd "$work_dir"
 
 # Explicit sourcing must find both installed support scripts and caller inputs.
 # spectrum intentionally reports its usage when invoked without arguments.
-mkdir "$work_dir/input directory"
-export NGSPICE_INPUT_DIR="$work_dir/input directory"
+mkdir "$work_dir/Input Directory With MixedCase"
+export NGSPICE_INPUT_DIR="$work_dir/Input Directory With MixedCase"
 cat > "$NGSPICE_INPUT_DIR/input_probe" <<'EOF'
 * Input directory lookup probe
 .control
@@ -45,8 +45,11 @@ if ! "$ngspice" -b "$data_dir/runtime_scripts.cir" > scripts.log 2>&1; then
   cat scripts.log >&2
   exit 1
 fi
+# Check the printed path as well as the lookup, so lowercasing is detected even
+# on a case-insensitive filesystem where the wrong-case directory still opens.
 if ! grep -Fq 'usage: spectrum startfreq stop step vec' scripts.log ||
-   ! grep -Fxq 'NGSPICE_INPUT_DIRECTORY_OK' scripts.log; then
+   ! grep -Fxq 'NGSPICE_INPUT_DIRECTORY_OK' scripts.log ||
+   ! grep -Fq "$NGSPICE_INPUT_DIR" scripts.log; then
   cat scripts.log >&2
   echo 'Installed or caller-provided script lookup failed' >&2
   exit 1
@@ -207,7 +210,8 @@ fi
 
 if [[ -n ${TEST_SRCDIR:-} && ${NGSPICE_BCR_MANIFEST_TEST:-0} == 0 ]]; then
   # Re-run the complete suite with only a manifest and a runtime path containing
-  # spaces. This exercises the launcher and quoted code-model paths together.
+  # spaces and uppercase letters. This exercises the launcher and quoted
+  # code-model paths together.
   # Sandboxed sh_test executions may have only the symlink tree, without its
   # MANIFEST file. Find the native runtime tree without a repository name.
   runtime_directories=()
@@ -254,7 +258,7 @@ if [[ -n ${TEST_SRCDIR:-} && ${NGSPICE_BCR_MANIFEST_TEST:-0} == 0 ]]; then
     echo 'Installed spinit contains unresolved placeholders or a build path' >&2
     exit 1
   fi
-  relocated_runtime="$work_dir/runtime with spaces"
+  relocated_runtime="$work_dir/Runtime With MixedCase And Spaces"
   mkdir "$relocated_runtime"
   # Materialize sandbox runfile links so this copy can run independently of the
   # original tree. Make the copy writable for cleanup of read-only Bazel outputs.
